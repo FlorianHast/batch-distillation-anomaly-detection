@@ -75,12 +75,16 @@ st.markdown(
 
 @st.cache_data
 def load_data(path: Path) -> pd.DataFrame:
+    """Load the processed window-level feature dataset."""
+
     df = pd.read_parquet(path)
 
-    # Convert dates if available
     for column in ["window_start", "window_end"]:
         if column in df.columns:
-            df[column] = pd.to_datetime(df[column], errors="coerce")
+            df[column] = pd.to_datetime(
+                df[column],
+                errors="coerce",
+            )
 
     return df
 
@@ -90,12 +94,18 @@ def load_data(path: Path) -> pd.DataFrame:
 # ============================================================
 
 def get_feature_columns(df: pd.DataFrame) -> list[str]:
-    """Return all non-metadata columns."""
-    return [column for column in df.columns if column not in META_COLUMNS]
+    """Return all columns that are not metadata columns."""
+
+    return [
+        column
+        for column in df.columns
+        if column not in META_COLUMNS
+    ]
 
 
 def get_numeric_feature_columns(df: pd.DataFrame) -> list[str]:
     """Return numeric feature columns only."""
+
     feature_columns = get_feature_columns(df)
 
     return [
@@ -109,13 +119,16 @@ def create_feature_plot(
     df: pd.DataFrame,
     feature: str,
 ) -> go.Figure:
+    """Create a window-level feature plot."""
 
     plot_df = df.sort_values("window").copy()
 
     fig = go.Figure()
 
     # Normal windows
-    normal = plot_df[plot_df["anomaly_label"] == 0]
+    normal = plot_df[
+        plot_df["anomaly_label"] == 0
+    ]
 
     if not normal.empty:
         fig.add_trace(
@@ -126,13 +139,16 @@ def create_feature_plot(
                 name="Normal",
                 hovertemplate=(
                     "Window: %{x}<br>"
-                    f"{feature}: %{{y}}<extra></extra>"
+                    f"{feature}: %{{y}}"
+                    "<extra></extra>"
                 ),
             )
         )
 
     # Anomalous windows
-    anomaly = plot_df[plot_df["anomaly_label"] == 1]
+    anomaly = plot_df[
+        plot_df["anomaly_label"] == 1
+    ]
 
     if not anomaly.empty:
         fig.add_trace(
@@ -147,7 +163,8 @@ def create_feature_plot(
                 ),
                 hovertemplate=(
                     "Window: %{x}<br>"
-                    f"{feature}: %{{y}}<extra></extra>"
+                    f"{feature}: %{{y}}"
+                    "<extra></extra>"
                 ),
             )
         )
@@ -158,23 +175,68 @@ def create_feature_plot(
         yaxis_title=feature,
         hovermode="x unified",
         height=450,
-        margin=dict(l=20, r=20, t=60, b=20),
+        margin=dict(
+            l=20,
+            r=20,
+            t=60,
+            b=20,
+        ),
     )
 
     return fig
 
 
 # ============================================================
-# Load data
+# Check data availability
 # ============================================================
 
 if not DATA_PATH.exists():
     st.error(
-        f"Data file not found:\n\n{DATA_PATH}"
+        "Data file not found:\n\n"
+        f"{DATA_PATH}"
     )
     st.stop()
 
+
+# ============================================================
+# Load dataset
+# ============================================================
+
 df = load_data(DATA_PATH)
+
+
+# ============================================================
+# Validate required columns
+# ============================================================
+
+required_columns = [
+    "batch",
+    "operating_point",
+    "experiment",
+    "experiment_type",
+    "phase",
+    "identifier",
+    "window",
+    "window_start",
+    "window_end",
+    "anomaly_label",
+]
+
+missing_columns = [
+    column
+    for column in required_columns
+    if column not in df.columns
+]
+
+if missing_columns:
+    st.error(
+        "The dataset is missing the following required columns:\n\n"
+        + "\n".join(
+            f"- {column}"
+            for column in missing_columns
+        )
+    )
+    st.stop()
 
 
 # ============================================================
@@ -182,14 +244,17 @@ df = load_data(DATA_PATH)
 # ============================================================
 
 st.markdown(
-    '<div class="main-title">Batch Distillation Anomaly Detection</div>',
+    '<div class="main-title">'
+    "Batch Distillation Anomaly Detection"
+    "</div>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
     <div class="subtitle">
-        Explainable anomaly detection for industrial batch distillation processes
+        Explainable anomaly detection for industrial batch
+        distillation processes
     </div>
     """,
     unsafe_allow_html=True,
@@ -202,27 +267,40 @@ st.markdown(
 
 st.sidebar.header("Experiment Explorer")
 
-# ------------------------------------------------------------
-# Batch
-# ------------------------------------------------------------
 
-batches = sorted(df["batch"].dropna().unique())
+# Batch
+batches = sorted(
+    df["batch"]
+    .dropna()
+    .unique()
+)
+
+if not batches:
+    st.error("No batches found in the dataset.")
+    st.stop()
 
 selected_batch = st.sidebar.selectbox(
     "Batch",
     batches,
 )
 
-batch_df = df[df["batch"] == selected_batch].copy()
+batch_df = df[
+    df["batch"] == selected_batch
+].copy()
 
 
-# ------------------------------------------------------------
 # Operating point
-# ------------------------------------------------------------
-
 operating_points = sorted(
-    batch_df["operating_point"].dropna().unique()
+    batch_df["operating_point"]
+    .dropna()
+    .unique()
 )
+
+if not operating_points:
+    st.error(
+        "No operating points found for the selected batch."
+    )
+    st.stop()
 
 selected_operating_point = st.sidebar.selectbox(
     "Operating point",
@@ -234,13 +312,18 @@ filtered_df = batch_df[
 ].copy()
 
 
-# ------------------------------------------------------------
 # Experiment
-# ------------------------------------------------------------
-
 experiments = sorted(
-    filtered_df["experiment"].dropna().unique()
+    filtered_df["experiment"]
+    .dropna()
+    .unique()
 )
+
+if not experiments:
+    st.error(
+        "No experiments found for the selected operating point."
+    )
+    st.stop()
 
 selected_experiment = st.sidebar.selectbox(
     "Experiment",
@@ -253,15 +336,18 @@ experiment_df = filtered_df[
 
 
 # ============================================================
-# Experiment information
+# Experiment overview
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">Experiment Overview</div>',
+    '<div class="section-title">'
+    "Experiment Overview"
+    "</div>",
     unsafe_allow_html=True,
 )
 
 col1, col2, col3, col4 = st.columns(4)
+
 
 with col1:
     st.metric(
@@ -269,15 +355,19 @@ with col1:
         len(experiment_df),
     )
 
+
 with col2:
     anomaly_windows = int(
-        (experiment_df["anomaly_label"] == 1).sum()
+        (
+            experiment_df["anomaly_label"] == 1
+        ).sum()
     )
 
     st.metric(
         "Anomalous windows",
         anomaly_windows,
     )
+
 
 with col3:
     experiment_type = (
@@ -291,11 +381,18 @@ with col3:
         experiment_type,
     )
 
+
 with col4:
-    phase_values = experiment_df["phase"].dropna().unique()
+    phase_values = (
+        experiment_df["phase"]
+        .dropna()
+        .unique()
+    )
 
     phase_display = (
-        ", ".join(map(str, phase_values))
+        ", ".join(
+            map(str, phase_values)
+        )
         if len(phase_values) > 0
         else "—"
     )
@@ -310,7 +407,10 @@ with col4:
 # Experiment metadata
 # ============================================================
 
-with st.expander("Experiment metadata", expanded=False):
+with st.expander(
+    "Experiment metadata",
+    expanded=False,
+):
 
     metadata = {
         "Batch": selected_batch,
@@ -326,22 +426,27 @@ with st.expander("Experiment metadata", expanded=False):
 
     metadata_df = pd.DataFrame(
         metadata.items(),
-        columns=["Property", "Value"],
+        columns=[
+            "Property",
+            "Value",
+        ],
     )
 
     st.dataframe(
         metadata_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
 
 # ============================================================
-# Window anomaly overview
+# Window-level anomaly overview
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">Window-level Anomaly Overview</div>',
+    '<div class="section-title">'
+    "Window-level Anomaly Overview"
+    "</div>",
     unsafe_allow_html=True,
 )
 
@@ -357,12 +462,10 @@ overview_df = experiment_df[
 
 fig = go.Figure()
 
+
+# Normal windows
 normal = overview_df[
     overview_df["anomaly_label"] == 0
-]
-
-anomaly = overview_df[
-    overview_df["anomaly_label"] == 1
 ]
 
 if not normal.empty:
@@ -376,13 +479,22 @@ if not normal.empty:
                 size=9,
                 symbol="circle",
             ),
-            text=normal["window_start"].astype(str),
+            text=normal[
+                "window_start"
+            ].astype(str),
             hovertemplate=(
                 "Window: %{x}<br>"
-                "Start: %{text}<extra></extra>"
+                "Start: %{text}"
+                "<extra></extra>"
             ),
         )
     )
+
+
+# Anomalous windows
+anomaly = overview_df[
+    overview_df["anomaly_label"] == 1
+]
 
 if not anomaly.empty:
     fig.add_trace(
@@ -395,13 +507,17 @@ if not anomaly.empty:
                 size=11,
                 symbol="x",
             ),
-            text=anomaly["window_start"].astype(str),
+            text=anomaly[
+                "window_start"
+            ].astype(str),
             hovertemplate=(
                 "Window: %{x}<br>"
-                "Start: %{text}<extra></extra>"
+                "Start: %{text}"
+                "<extra></extra>"
             ),
         )
     )
+
 
 fig.update_layout(
     height=250,
@@ -410,16 +526,27 @@ fig.update_layout(
         title="Status",
         tickmode="array",
         tickvals=[0, 1],
-        ticktext=["Normal", "Anomaly"],
-        range=[-0.3, 1.3],
+        ticktext=[
+            "Normal",
+            "Anomaly",
+        ],
+        range=[
+            -0.3,
+            1.3,
+        ],
     ),
     hovermode="closest",
-    margin=dict(l=20, r=20, t=30, b=20),
+    margin=dict(
+        l=20,
+        r=20,
+        t=30,
+        b=20,
+    ),
 )
 
 st.plotly_chart(
     fig,
-    use_container_width=True,
+    width="stretch",
 )
 
 
@@ -428,7 +555,9 @@ st.plotly_chart(
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">Feature Explorer</div>',
+    '<div class="section-title">'
+    "Feature Explorer"
+    "</div>",
     unsafe_allow_html=True,
 )
 
@@ -438,11 +567,12 @@ numeric_features = get_numeric_feature_columns(
 
 if not numeric_features:
 
-    st.warning("No numeric feature columns available.")
+    st.warning(
+        "No numeric feature columns available."
+    )
 
 else:
 
-    # Try to put important process variables first
     preferred_features = [
         "T701_mean",
         "T702_mean",
@@ -472,7 +602,9 @@ else:
         if feature not in ordered_features
     ]
 
-    ordered_features.extend(remaining_features)
+    ordered_features.extend(
+        remaining_features
+    )
 
     selected_feature = st.selectbox(
         "Select a feature",
@@ -484,7 +616,7 @@ else:
             experiment_df,
             selected_feature,
         ),
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -493,14 +625,17 @@ else:
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">Detected / Labelled Anomalous Windows</div>',
+    '<div class="section-title">'
+    "Detected / Labelled Anomalous Windows"
+    "</div>",
     unsafe_allow_html=True,
 )
 
 if anomaly_windows == 0:
 
     st.info(
-        "No anomalous windows are labelled for this experiment."
+        "No anomalous windows are labelled "
+        "for this experiment."
     )
 
 else:
@@ -517,7 +652,7 @@ else:
 
     st.dataframe(
         anomaly_table,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -526,12 +661,15 @@ else:
 # Dataset information
 # ============================================================
 
-with st.expander("Dataset information", expanded=False):
+with st.expander(
+    "Dataset information",
+    expanded=False,
+):
 
     feature_columns = get_feature_columns(df)
 
     st.write(
-        f"**Dataset:** `window_features.parquet`"
+        "**Dataset:** `window_features.parquet`"
     )
 
     st.write(
