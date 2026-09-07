@@ -22,3 +22,4 @@ Thumbs.db
 # Raw and generated data
 data/raw/
 data/processed/
+notebooks_src/
