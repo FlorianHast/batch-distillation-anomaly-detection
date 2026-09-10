@@ -94,6 +94,12 @@ FINAL_TEST_RESULTS_PATH = (
     RESULTS_DIR / "final_test_results.parquet"
 )
 
+# NEW:
+# Window-level final-test predictions and anomaly scores
+WINDOW_PREDICTIONS_PATH = (
+    RESULTS_DIR / "window_predictions.parquet"
+)
+
 
 # ============================================================
 # Model definitions
@@ -1362,6 +1368,10 @@ def evaluate_final_test(
         - Imputer fitted on training.
         - Threshold selected on validation.
         - Final test is not used for any decision.
+
+    In addition to aggregate metrics, this function now
+    creates window-level prediction records for the
+    Streamlit anomaly detection demo.
     """
 
     print("\n")
@@ -1370,6 +1380,11 @@ def evaluate_final_test(
     print("=" * 80)
 
     final_results = []
+
+    # NEW:
+    # Collect individual predictions for every final-test
+    # window and every model.
+    window_prediction_rows = []
 
     for model_name in best_models.keys():
 
@@ -1405,6 +1420,7 @@ def evaluate_final_test(
             model_datasets[
                 model_name
             ]["final_test"]
+            .copy()
         )
 
         X_final_test = final_test_df[
@@ -1425,7 +1441,10 @@ def evaluate_final_test(
             )
         )
 
+        # ----------------------------------------------------
         # Higher score = more anomalous
+        # ----------------------------------------------------
+
         final_test_scores = (
             -model.score_samples(
                 X_final_test_imputed
@@ -1493,6 +1512,59 @@ def evaluate_final_test(
             ),
         })
 
+        # ----------------------------------------------------
+        # NEW:
+        # Save window-level predictions
+        # ----------------------------------------------------
+
+        prediction_columns = [
+            "identifier",
+            "window",
+            "window_start",
+            "window_end",
+            "batch",
+            "operating_point",
+            "experiment",
+            "experiment_type",
+            "phase",
+            "anomaly_label",
+            "observable_anomaly",
+        ]
+
+        available_prediction_columns = [
+            column
+            for column in prediction_columns
+            if column in final_test_df.columns
+        ]
+
+        window_predictions = (
+            final_test_df[
+                available_prediction_columns
+            ]
+            .copy()
+            .reset_index(drop=True)
+        )
+
+        window_predictions["model"] = (
+            model_name
+        )
+
+        window_predictions["anomaly_score"] = (
+            final_test_scores
+        )
+
+        window_predictions["prediction"] = (
+            y_final_pred
+        )
+
+        window_prediction_rows.append(
+            window_predictions
+        )
+
+        # ----------------------------------------------------
+        # Console output
+        # ----------------------------------------------------
+
         print(
             f"  AUPRC:     {auprc:.6f}"
         )
@@ -1525,7 +1597,58 @@ def evaluate_final_test(
         .reset_index(drop=True)
     )
 
-    return final_results_df
+    # --------------------------------------------------------
+    # Combine window-level predictions
+    # --------------------------------------------------------
+
+    window_predictions_df = (
+        pd.concat(
+            window_prediction_rows,
+            ignore_index=True,
+        )
+    )
+
+    # Keep a predictable column order
+    preferred_column_order = [
+        "identifier",
+        "window",
+        "window_start",
+        "window_end",
+        "batch",
+        "operating_point",
+        "experiment",
+        "experiment_type",
+        "phase",
+        "model",
+        "anomaly_score",
+        "prediction",
+        "anomaly_label",
+        "observable_anomaly",
+    ]
+
+    final_column_order = [
+        column
+        for column in preferred_column_order
+        if column in window_predictions_df.columns
+    ]
+
+    remaining_columns = [
+        column
+        for column in window_predictions_df.columns
+        if column not in final_column_order
+    ]
+
+    window_predictions_df = (
+        window_predictions_df[
+            final_column_order
+            + remaining_columns
+        ]
+    )
+
+    return (
+        final_results_df,
+        window_predictions_df,
+    )
 
 
 # ============================================================
@@ -1538,9 +1661,11 @@ def save_results(
     best_configuration_df,
     threshold_results_df,
     final_test_results_df,
+    window_predictions_df,
 ):
     """
-    Save numerical modeling results for later visualization.
+    Save numerical modeling results and
+    window-level predictions for later visualization.
     """
 
     RESULTS_DIR.mkdir(
@@ -1554,15 +1679,21 @@ def save_results(
     )
 
     optimization_results_df["n_estimators"] = (
-        optimization_results_df["n_estimators"].astype(int)
+        optimization_results_df[
+            "n_estimators"
+        ].astype(int)
     )
 
     optimization_results_df["max_samples"] = (
-        optimization_results_df["max_samples"].astype(str)
+        optimization_results_df[
+            "max_samples"
+        ].astype(str)
     )
 
     optimization_results_df["max_features"] = (
-        optimization_results_df["max_features"].astype(str)
+        optimization_results_df[
+            "max_features"
+        ].astype(str)
     )
 
     optimization_results_df.to_parquet(
@@ -1585,7 +1716,15 @@ def save_results(
         index=False,
     )
 
+    # NEW:
+    # Save one row per final-test window and model.
+    window_predictions_df.to_parquet(
+        WINDOW_PREDICTIONS_PATH,
+        index=False,
+    )
+
     print("\nResults saved:")
+
     print(
         f"  Default models:       "
         f"{DEFAULT_RESULTS_PATH}"
@@ -1609,6 +1748,16 @@ def save_results(
     print(
         f"  Final test:           "
         f"{FINAL_TEST_RESULTS_PATH}"
+    )
+
+    print(
+        f"  Window predictions:   "
+        f"{WINDOW_PREDICTIONS_PATH}"
+    )
+
+    print(
+        f"\nWindow prediction rows: "
+        f"{len(window_predictions_df):,}"
     )
 
 
@@ -1726,14 +1875,15 @@ def main():
     # Stage 4: final test
     # --------------------------------------------------------
 
-    final_test_results_df = (
-        evaluate_final_test(
-            model_datasets,
-            best_models,
-            best_preprocessors,
-            best_features,
-            threshold_results_df,
-        )
+    (
+        final_test_results_df,
+        window_predictions_df,
+    ) = evaluate_final_test(
+        model_datasets,
+        best_models,
+        best_preprocessors,
+        best_features,
+        threshold_results_df,
     )
 
     # --------------------------------------------------------
@@ -1746,6 +1896,7 @@ def main():
         best_configuration_df,
         threshold_results_df,
         final_test_results_df,
+        window_predictions_df,
     )
 
     # --------------------------------------------------------
@@ -1821,6 +1972,10 @@ def main():
     print(
         "✓ Final-test evaluation was performed after "
         "model and threshold selection."
+    )
+
+    print(
+        "✓ Window-level final-test predictions were saved."
     )
 
     print(
